@@ -1,8 +1,3 @@
----
-title: Protocolo para Deconvolución local (DeltaVision)
-author: Daniel León Periñán
-date: today
----
 # deCU: deconvolución con CUDAdecon para DeltaVision y SpinningDisk
 Este script, basado en las librerías pyCUDAdecon y mrc, permite realizar la deconvolución por GPU (dGPU) de imágenes de microscopía capturada con microscopios DeltaVision y SpinningDisk, probados en el Centro Andaluz de Biología del Desarrollo (CABD-CSIC-UPO).
 
