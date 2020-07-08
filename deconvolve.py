@@ -264,7 +264,7 @@ def max_projection(im, minimum=0, maximum=-1):
     Returns:
         np.array: z maximum projected image
     """    
-    if im.nt <= 1:
+    if im.shape == 5 and np.size(im, axis = 0) <= 1:
         if len(im.shape) == 4:
             result = np.max(
                 im[0, minimum:maximum, :, :], axis=0
