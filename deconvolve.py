@@ -7,7 +7,6 @@
 from pycudadecon import RLContext, rl_decon, TemporaryOTF
 from contextlib import contextmanager
 from tqdm import tqdm
-import pynvml as nvml
 import numpy as np
 import tifffile
 import mrc
@@ -41,6 +40,7 @@ class Image:
                 im = self.image[t, 0 : self.nz, :, :]
             else:
                 im = self.image[0 : self.nz, :, :]
+                # More than one z is mandatory!
         else:
             if self.image.shape[1] == self.nz:
                 im = self.image[t, 0 : self.nz, w, :, :]
@@ -48,34 +48,76 @@ class Image:
                 im = self.image[t, w, 0 : self.nz, :, :]
         return im
 
-    # Create a new function to duplicate the Z-stack and 
-    # perform deconvolution. Then, remove the extra timeframe
+    # TODO implement a duplication function
 
 
 def open_tif(route):
+    """[summary]
+
+    Args:
+        route (string): route for the .tiff file being processed
+
+    Raises:
+        ValueError: when wavelengths (even if one) are not provided
+        ValueError: when a 4D stack is not provided
+
+    Returns:
+        tuple: complying the order in the Image class, returns the tuple
+        of dimensions (TZWXY), as well as pixel size and other features
+    """
+    # Check that wavelengths have been provided through arguments
     if args.waves == None:
         raise ValueError("No wavelengths were provided. Please refer to --help")
+
+    # Get pixel and stack size from arguments (defaults are set if none)
     pxx, pxz = args.xyimage, args.zimage
+
+    # Read the image using tifffile
     image = tifffile.imread(route)
+
+    # Check that the image is a 4D stack
     if len(image.shape) < 5:
         raise ValueError("Dimensions are wrong. You must provide a 4D stack")
+
+    # Detuple the image properties
     nt, nz, nw, nx, ny = image.shape
+
     return args.waves, [pxx, pxx, pxz], [nt, nz, nw, nx, ny], image
 
 
 def open_dv(route):
+    """Opens a DeltaVision .dv image stack, and generates a tuple of 
+    settings using mrc
+
+    Args:
+        route (string): route for the .dv file being processed
+
+    Returns:
+        tuple: complying the order in the Image class, returns the tuple
+        of dimensions (TZWXY), as well as pixel size and other features
+    """
+    # Load the .dv file into memory with mrc
     image = mrc.imread(route)
+
+    # Parse the header
     header = image.Mrc.hdr
+
+    # Parse the number of timepoints and wavelengths
     nt, nw = header.NumTimes, header.NumWaves
+
+    # Parse the number of XY pixels (image resolution)
     nx, ny, nsecs = header.Num
+
+    # Parse the number of z planes
     nz = int(nsecs / nt / nw)
+
+    # Parse the pixel and stack sizes in microns
     pxx, pxy, pxz = header.d[0:3]
     return header.wave[0:4], [pxx, pxy, pxz], [nt, nz, nw, nx, ny], image
 
 
 def join_spinning(route, channels):
-    """
-    This function allows joining a set of Spinning-Disk folder
+    """Joins a set of Spinning-Disk folder
     structure to a .tif file consisting of a Z-Stack.
 
     You must provide the route as a foldername, it is
@@ -93,7 +135,7 @@ def join_spinning(route, channels):
         channels ([list]): list of channel names (same as subsequent folder names)
 
     Returns:
-        filename [string]: The generated 4D stack file route
+        [string]: The generated 4D stack file route
     """
     # Creates an empty list that will contain the final stack
     movieStack = []
@@ -137,6 +179,7 @@ def join_spinning(route, channels):
         movieStack.append(channelStack)
 
     # Transposes the array to maintain the classical TCZXY ordering (4D stack)
+    # TODO: this is a bit wanky, will be fixed
     movieStack = np.array(movieStack)
     movieStack = np.swapaxes(movieStack, 0, 1)
     movieStack = np.swapaxes(movieStack, 1, 2)
@@ -152,6 +195,13 @@ def join_spinning(route, channels):
 # https://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python/17954769#17954769
 @contextmanager
 def stdout_redirected(to=os.devnull):
+    """Redirects the CUDAdecon output to the provided route, avoiding displaying it
+    in the display (iterations, lambda values...). Instead, it is better to store it
+    in a log.
+
+    Args:
+        to (string, optional): text file to write into. Defaults to os.devnull.
+    """
     fd = sys.stdout.fileno()
 
     def _redirect_stdout(to):
@@ -160,6 +210,7 @@ def stdout_redirected(to=os.devnull):
         sys.stdout = os.fdopen(fd, "w")
 
     with os.fdopen(os.dup(fd), "w") as old_stdout:
+        # Changed to append
         with open(to, "a") as file:
             _redirect_stdout(to=file)
         try:
@@ -169,32 +220,92 @@ def stdout_redirected(to=os.devnull):
 
 
 def log(message, fname=None, show=True):
+    """Logging function used throughout the program
+
+    Args:
+        message (string): what is to be logged
+        fname (string, optional): route of the log file, if not provided, no file will be written. Defaults to None.
+        show (bool, optional): to be displayed onscreen. Defaults to True.
+    """
+
+    # Check function arguments
     if show:
         print("{}".format(message))
     if fname is not None:
+        # Append the message content into the file if it exists, or create it from scratch
         with open(fname, "a" if os.path.exists(fname) else "w") as f:
             f.write("{}\n".format(message))
 
 
 def getGPUinfo():
-    # This works with Nvidia GPUs, only. nvidia-smi must be installed
+    """Gets GPU information with logging purposes. Please note that
+    CUDA library must be installed, with nvidia-smi available.
+
+    Returns:
+        stirng: formatted output of the nvidia-smi command
+    """    
+    # Call a new nvidia-smi process and read its output
     smiOutput = os.popen("nvidia-smi").read()
+
+    # Clean output contents
     smiSplitted = smiOutput.splitlines()
+
     return "\n".join(smiSplitted[1:10])
+
+def max_projection(im, minimum=0, maximum=-1):
+    """Returns the Z maximum projection of an image, between the
+    provided minimum and maximum slices
+
+    Args:
+        im (np.array): image data as numpy array, any format. 4D stack!
+        minimum (int, optional): minimum slice in Z projection. Defaults to 0.
+        maximum (int, optional): maximum slice in Z projection. Defaults to -1.
+
+    Returns:
+        np.array: z maximum projected image
+    """    
+    if im.nt <= 1:
+        if len(im.shape) == 4:
+            result = np.max(
+                im[0, minimum:maximum, :, :], axis=0
+            )
+        else:
+            result = np.max(
+                im[minimum:maximum, :, :], axis=0
+            )
+    else:
+        result = np.max(
+            im[:, minimum:maximum, :, :], axis=1
+        )
+    
+    return result
 
 
 def deconvolve_all():
-    log("# Starting deconvolution with settings provided")
-    # Implements CUDA and .dv (DeltaVision) file reading (thanks to tlambert01)
-    filter_paths = args.psf
+    """Main deconvolution function, where all logging, file exploration and
+    processing is wrapped. Continuous references to external libraries...
+    Many thanks to tlambert01 for the libs mrc and pyCUDAdecon
+    """    
 
+    log("# Starting deconvolution")
     log("# GPU information")
     log(getGPUinfo())
 
-    for f in args.source:  # Must be fixed to implement SpinningDisk files
-        logfile = "{}.log".format(f)  # Create .log file for each movie
+    # Get the paths for each filter to be used, in the same order
+    filter_paths = args.psf
+
+    # Iterate over the list of files provided
+    # Note that queuing can be done using a simple .sh script to call the
+    # application with different parameters
+    for f in args.source: 
+
+        # Log file naming
+        logfile = "{}.log".format(f)
+
+        # Start a timer for profiling time elapsed
         start = time.time()
 
+        # Check whether source provided is SpinningDisk-like
         if os.path.isdir(f):
             channels = args.spinning
             log(
@@ -205,36 +316,40 @@ def deconvolve_all():
             )
             f = join_spinning(f, channels)
 
+        # Store the file extension to save in the same format
         extension = os.path.splitext(f)[1]
 
-        output_name = os.path.basename(os.path.splitext(f)[0])
-        image_loaded = Image(f)
-        nt, nz, nw = image_loaded.nt, image_loaded.nz, image_loaded.nw
-        nx, ny = image_loaded.nx, image_loaded.ny
+        # Generate an output name based on the source name
+        outname = os.path.basename(os.path.splitext(f)[0])
 
-        nw_f = min(len(filter_paths), nw)
+        # Load the image
+        log("# Loading the file {} and creating log".format(f), logfile)
+        im = Image(f)
 
+        # Calculate an appropriate number of wavelengths to process
+        nw = min(len(filter_paths), im.nw)
+ 
+        # Create the header for the current file
         log("\n\n# Processing file {}".format(f))
         log(
             "# Starting deconvolution at {}".format(
                 time.strftime("%b %d %Y %H:%M:%S", time.localtime(start))
             )
         )
-
         log("####################################################", logfile, show=False)
-        log("CUDA Deconvolution, by DLP (CABD), using pyCudaDecon", logfile, show=False)
+        log("deCU v1.0.5, by DLP (CABD), 2020", logfile, show=False)
         log("####################################################", logfile, show=False)
         log("\n# Deconvolution settings", logfile, show=False)
         log("## Projection {}".format(args.project), logfile, show=False)
-        log("## Channels {}".format(nw), logfile, show=False)
+        log("## Channels {}".format(im.nw), logfile, show=False)
         log("## File {}".format(f), logfile, show=False)
         log(
-            "## XY pixel size {}".format(round(image_loaded.pxx, 3)),
+            "## XY pixel size {}".format(round(im.pxx, 3)),
             logfile,
             show=False,
         )
         log(
-            "## Z-stack depth {}".format(round(image_loaded.pxz, 3)),
+            "## Z-stack depth {}".format(round(im.pxz, 3)),
             logfile,
             show=False,
         )
@@ -248,72 +363,86 @@ def deconvolve_all():
             show=False,
         )
         log("\n# Deconvolution process steps", logfile, show=False)
-
-        for w in range(0, nw_f):
+        
+        # Iterate over the range of wavelengths
+        for w in range(0, nw):
+            # Skip wavelengths marked as null
             if filter_paths[w] == "_":
                 continue
+
             log(
                 "\n## Deconvolving channel {} with PSF {}. {} frame{}".format(
-                    w, filter_paths[w], nt, "s" if nt > 1 else ""
+                    w, filter_paths[w], im.nt, "s" if im.nt > 1 else ""
                 ),
                 logfile,
             )
-            image_cat = []
+
+            # Provisional list to store multiframe images
+            stack = []
+
+            # Loading all libraries for the deconvolution process
             with TemporaryOTF(filter_paths[w]) as otf:
                 with stdout_redirected(to=logfile):
-                    with RLContext([nz, nx, ny], otf.path) as ctx:
-                        for t in tqdm(range(0, nt)):
+                    with RLContext([im.nz, im.nx, im.ny], otf.path) as ctx:
+                        # Iterate over all frames in the image
+                        for t in tqdm(range(0, im.nt)):
+
+                            # Using echo to save into the logfile the frame no.
                             os.system("echo ## Frame {}".format(t))
-                            image = image_loaded.frame(t, w)
+
+                            # Retrieve current frame
+                            image = im.frame(t, w)
+
+                            # Perform pyCUDAdecon deconvolution
                             result = rl_decon(
                                 image,
                                 output_shape=ctx.out_shape,
-                                dxdata=image_loaded.pxx,
+                                dxdata=im.pxx,
                                 dxpsf=args.xyfilter,
-                                dzdata=image_loaded.pxz,
+                                dzdata=im.pxz,
                                 dzpsf=args.zfilter,
-                                wavelength=image_loaded.wavelengths[w],
+                                wavelength=im.wavelengths[w],
                                 n_iters=args.i,
                                 na=args.na,
                                 nimm=args.refractive,
                             )
+
+                            # Convert the result to uint16 to preserve format
                             result = result.astype(np.uint16)
-                            image_cat.append(result)
-                        image_result = np.array(image_cat)
-            fname_save = ("{0}_{1}_D3D{2}").format(
-                output_name, str(image_loaded.wavelengths[w]), extension
+
+                            # Append the timepoint to the stack
+                            stack.append(result)
+
+                        # Generate a np array from the stack
+                        imResult = np.array(stack)
+
+            # Generate a definitive saving name
+            savename = ("{0}_{1}_D3D{2}").format(
+                outname, str(im.wavelengths[w]), extension
             )
-            log("## Saving file as {}".format(fname_save), logfile)
+
+            log("## Saving file as {}".format(savename), logfile)
             saveformat[extension](
-                fname_save, image_result,
+                savename, imResult,
             )
-            # Added new functionality for Z-stack maximum projection
+
+            # Check whether max-projection has to occur
+            # TODO implement more types of projection
             if args.project:
                 log("## Creating maximum projection", logfile)
-                min_plane = args.planes[0]
-                max_plane = args.planes[1]
-                if image_loaded.nt <= 1:
-                    if len(image_result.shape) == 4:
-                        image_max = np.max(
-                            image_result[0, min_plane:max_plane, :, :], axis=0
-                        )
-                    else:
-                        image_max = np.max(
-                            image_result[min_plane:max_plane, :, :], axis=0
-                        )
-                else:
-                    image_max = np.max(
-                        image_result[:, min_plane:max_plane, :, :], axis=1
-                    )
-                fmax_save = ("{0}_{1}_PRJ_D3D{2}").format(
-                    output_name, str(image_loaded.wavelengths[w]), extension
+                imProjected = max_projection(imResult, minimum = args.planes[0], maximum = args.planes[1])
+                savename = ("{0}_{1}_PRJ_D3D{2}").format(
+                    outname, str(im.wavelengths[w]), extension
                 )
-                log("## Saving maximum projection as {}".format(fmax_save), logfile)
+                log("## Saving maximum projection as {}".format(savename), logfile)
                 saveformat[extension](
-                    fmax_save, image_max,
+                    savename, imProjected,
                 )
+        
+        # Stop profiling timer and calculate time elapsed
         end = time.time()
         elapsed = end - start
+
         log(
             "# Deconvolution ended at {}, elapsed {}".format(
                 time.strftime("%b %d %Y %H:%M:%S", time.localtime(end)),
@@ -324,6 +453,11 @@ def deconvolve_all():
 
 
 def cmdline_args():
+    """Parses the command line arguments as program parameters
+
+    Returns:
+        argparse.args: comprehensive list of arguments
+    """    
     p = argparse.ArgumentParser(
         description="""
         CUDA deconvolution of (multi)frame .dv or .tif(f) files
@@ -401,7 +535,8 @@ def cmdline_args():
 
     return p.parse_args()
 
-# Dictionary for opening format functions
+
+# Dictionary for opening functions
 opener = {".tif": open_tif, ".tiff": open_tif, ".dv": open_dv}
 
 # Dictionary for saving functions
