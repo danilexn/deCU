@@ -36,7 +36,9 @@ class Image:
         if self.nt <= 1 and self.nw > 1:
             im = self.image[w, 0 : self.nz, :, :]
         elif self.nw <= 1:  # Fixed for only 1 channel!
-            if self.nt > 1:
+            if len(self.image.shape) == 5:
+                im = self.image[t, 0 : self.nz, w, :, :]
+            elif self.nt > 1:
                 im = self.image[t, 0 : self.nz, :, :]
             else:
                 im = self.image[0 : self.nz, :, :]
