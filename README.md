@@ -8,7 +8,7 @@ En la carpeta raíz se encuentran las subcarpetas y archivos siguientes:
 
 ## Cómo instalar
 1. Debes asegurarte de contar con una GPU compatible: la deconvolución utiliza los núcleos CUDA de las GPU Nvidia modernas, habiéndose probado con éxito una Nvidia GT 1030 LP, que se considerará requisito mínimo. 
-2. Instala los drivers CUDA compatibles con tu GPU
+2. [Instala los drivers CUDA](https://developer.nvidia.com/cuda-downloads) compatibles con tu GPU
 3. [Instala Python 3.7 o superior](https://www.python.org/downloads/)
 4. [Instala Conda](https://docs.conda.io/en/latest/miniconda.html), en cualquiera de sus distribuciones
 5. [Instala Git](https://git-scm.com/downloads)
