@@ -245,7 +245,7 @@ def getGPUinfo():
 
     Returns:
         stirng: formatted output of the nvidia-smi command
-    """    
+    """
     # Call a new nvidia-smi process and read its output
     smiOutput = os.popen("nvidia-smi").read()
 
@@ -253,6 +253,7 @@ def getGPUinfo():
     smiSplitted = smiOutput.splitlines()
 
     return "\n".join(smiSplitted[1:10])
+
 
 def max_projection(im, minimum=0, maximum=-1):
     """Returns the Z maximum projection of an image, between the
@@ -265,21 +266,15 @@ def max_projection(im, minimum=0, maximum=-1):
 
     Returns:
         np.array: z maximum projected image
-    """    
-    if im.shape == 5 and np.size(im, axis = 0) <= 1:
+    """
+    if im.shape == 5 and np.size(im, axis=0) <= 1:
         if len(im.shape) == 4:
-            result = np.max(
-                im[0, minimum:maximum, :, :], axis=0
-            )
+            result = np.max(im[0, minimum:maximum, :, :], axis=0)
         else:
-            result = np.max(
-                im[minimum:maximum, :, :], axis=0
-            )
+            result = np.max(im[minimum:maximum, :, :], axis=0)
     else:
-        result = np.max(
-            im[:, minimum:maximum, :, :], axis=1
-        )
-    
+        result = np.max(im[:, minimum:maximum, :, :], axis=1)
+
     return result
 
 
@@ -287,7 +282,7 @@ def deconvolve_all():
     """Main deconvolution function, where all logging, file exploration and
     processing is wrapped. Continuous references to external libraries...
     Many thanks to tlambert01 for the libs mrc and pyCUDAdecon
-    """    
+    """
 
     log("# Starting deconvolution")
     log("# GPU information")
@@ -299,7 +294,7 @@ def deconvolve_all():
     # Iterate over the list of files provided
     # Note that queuing can be done using a simple .sh script to call the
     # application with different parameters
-    for f in args.source: 
+    for f in args.source:
 
         # Log file naming
         logfile = "{}.log".format(f)
@@ -330,7 +325,7 @@ def deconvolve_all():
 
         # Calculate an appropriate number of wavelengths to process
         nw = min(len(filter_paths), im.nw)
- 
+
         # Create the header for the current file
         log("\n\n# Processing file {}".format(f))
         log(
@@ -346,14 +341,10 @@ def deconvolve_all():
         log("## Channels {}".format(im.nw), logfile, show=False)
         log("## File {}".format(f), logfile, show=False)
         log(
-            "## XY pixel size {}".format(round(im.pxx, 3)),
-            logfile,
-            show=False,
+            "## XY pixel size {}".format(round(im.pxx, 3)), logfile, show=False,
         )
         log(
-            "## Z-stack depth {}".format(round(im.pxz, 3)),
-            logfile,
-            show=False,
+            "## Z-stack depth {}".format(round(im.pxz, 3)), logfile, show=False,
         )
         log("## GPU information", logfile, show=False)
         log(getGPUinfo(), logfile, show=False)
@@ -365,7 +356,7 @@ def deconvolve_all():
             show=False,
         )
         log("\n# Deconvolution process steps", logfile, show=False)
-        
+
         # Iterate over the range of wavelengths
         for w in range(0, nw):
             # Skip wavelengths marked as null
@@ -432,7 +423,9 @@ def deconvolve_all():
             # TODO implement more types of projection
             if args.project:
                 log("## Creating maximum projection", logfile)
-                imProjected = max_projection(imResult, minimum = args.planes[0], maximum = args.planes[1])
+                imProjected = max_projection(
+                    imResult, minimum=args.planes[0], maximum=args.planes[1]
+                )
                 savename = ("{0}_{1}_PRJ_D3D{2}").format(
                     outname, str(im.wavelengths[w]), extension
                 )
@@ -440,7 +433,7 @@ def deconvolve_all():
                 saveformat[extension](
                     savename, imProjected,
                 )
-        
+
         # Stop profiling timer and calculate time elapsed
         end = time.time()
         elapsed = end - start
@@ -459,14 +452,13 @@ def cmdline_args():
 
     Returns:
         argparse.args: comprehensive list of arguments
-    """    
+    """
     p = argparse.ArgumentParser(
         description="""
         CUDA deconvolution of (multi)frame .dv or .tif(f) files
         """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
     p.add_argument(
         "--source",
         nargs="+",
@@ -481,38 +473,31 @@ def cmdline_args():
     )
     p.add_argument(
         "--zfilter",
-        nargs=1,
         default=0.1,
         help="Z-depth of the given filter(s) (PSF) in microns",
     )
     p.add_argument(
         "--xyfilter",
-        nargs=1,
         default=0.1,
         help="XY-pixel size of the given filter(s) (PSF) in microns",
     )
     p.add_argument(
         "--zimage",
-        nargs=1,
         default=0.1,
         type=float,
         help="Z-depth of the given image stack in microns",
     )
     p.add_argument(
         "--xyimage",
-        nargs=1,
         default=0.1,
         type=float,
         help="XY-pixel size of the given image in microns",
     )
     p.add_argument(
-        "--na",
-        nargs=1,
-        default=1.4,
-        help="Numerical aperture units for selected objective",
+        "--na", default=1.4, help="Numerical aperture units for selected objective",
     )
     p.add_argument(
-        "--refractive", nargs=1, default=1.5, help="Refractive index of interface media"
+        "--refractive", default=1.5, help="Refractive index of interface media"
     )
     p.add_argument(
         "--spinning",
@@ -520,9 +505,7 @@ def cmdline_args():
         type=str,
         help="Folder names for each channel in a SpinningDisk type file structure",
     )
-    p.add_argument(
-        "-i", nargs=1, default=15, help="Iterations of the Richardson-Lucy algorithm"
-    )
+    p.add_argument("-i", default=15, help="Iterations of the Richardson-Lucy algorithm")
     p.add_argument(
         "-p", "--project", action="store_true", help="Project the z-stack in a new file"
     )
