@@ -1,4 +1,4 @@
-numpy==1.17.1
+numpy==1.22.0
 mrc==0.1.5
 tifffile==2020.7.4
 tqdm==4.47.0
