@@ -1,5 +1,5 @@
 numpy==1.17.1
 mrc==0.1.5
 tifffile==2020.7.4
-tqdm==4.47.0
+tqdm==4.66.3
 pycudadecon==0.1.2
